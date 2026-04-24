@@ -11,8 +11,6 @@ import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
 import threading
 import subprocess
-import shutil
-import tempfile
 import os
 import math
 
@@ -42,15 +40,6 @@ def find_docx(root):
 def open_in_explorer(path):
     subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
 
-
-def convert_via_temp(docx_path, out_pdf_path):
-    """Copy to temp dir first so OneDrive/cloud-only files are downloaded."""
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_docx = os.path.join(tmp, os.path.basename(docx_path))
-        tmp_pdf  = os.path.splitext(tmp_docx)[0] + ".pdf"
-        shutil.copy2(docx_path, tmp_docx)   # forces OneDrive to sync file locally
-        convert(tmp_docx, tmp_pdf)
-        shutil.move(tmp_pdf, out_pdf_path)
 
 
 class DoctorCanvas(tk.Canvas):
@@ -465,7 +454,7 @@ class DrPdfApp(tk.Tk):
             self.status_label.config(
                 text=f"({i}/{len(files)})  {rel}", fg="#374151")
             try:
-                convert_via_temp(path, pdf_path(path))
+                convert(path, pdf_path(path))
             except Exception as e:
                 errors.append((path, str(e)))
             self.progress["value"] = i
