@@ -11,15 +11,18 @@ import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
 import threading
 import subprocess
+import time
 import os
 import math
 
 try:
-    from docx2pdf import convert
+    import win32com.client
+    import pythoncom
 except ImportError:
-    messagebox.showerror(
+    import tkinter.messagebox as _mb
+    _mb.showerror(
         "Fehlende Abhängigkeit",
-        "Bitte installiere docx2pdf:\n\npip install docx2pdf",
+        "Bitte installiere pywin32:\n\npip install pywin32",
     )
     sys.exit(1)
 
@@ -448,17 +451,57 @@ class DrPdfApp(tk.Tk):
         ).start()
 
     def _convert(self, files, root_folder):
+        pythoncom.CoInitialize()
         errors = []
-        for i, path in enumerate(files, 1):
-            rel = os.path.relpath(path, root_folder)
-            self.status_label.config(
-                text=f"({i}/{len(files)})  {rel}", fg="#374151")
-            try:
-                convert(path, pdf_path(path))
-            except Exception as e:
-                errors.append((path, str(e)))
-            self.progress["value"] = i
-            self.update_idletasks()
+        word = None
+
+        try:
+            word = win32com.client.Dispatch("Word.Application")
+            word.Visible = False
+            word.DisplayAlerts = 0
+
+            for i, path in enumerate(files, 1):
+                rel = os.path.relpath(path, root_folder)
+                self.status_label.config(
+                    text=f"({i}/{len(files)})  {rel}", fg="#374151")
+
+                doc = None
+                try:
+                    doc = word.Documents.Open(path, False, True)  # ConfirmConversions=False, ReadOnly=True
+                    time.sleep(0.8)
+
+                    out = pdf_path(path)
+                    saved = False
+                    for attempt in range(5):
+                        try:
+                            doc.SaveAs(out, 17)  # 17 = wdFormatPDF
+                            saved = True
+                            break
+                        except Exception:
+                            time.sleep(2)
+
+                    if not saved:
+                        errors.append((path, "Speichern fehlgeschlagen nach 5 Versuchen"))
+
+                except Exception as e:
+                    errors.append((path, str(e)))
+                finally:
+                    if doc is not None:
+                        try:
+                            doc.Close(False)
+                        except Exception:
+                            pass
+
+                self.progress["value"] = i
+                self.update_idletasks()
+
+        finally:
+            if word is not None:
+                try:
+                    word.Quit()
+                except Exception:
+                    pass
+            pythoncom.CoUninitialize()
 
         self.doctor.stop()
         self.convert_btn.config(state="normal")
