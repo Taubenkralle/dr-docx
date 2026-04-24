@@ -37,9 +37,9 @@ class DoctorCanvas(tk.Canvas):
     W, H = 140, 168
 
     def __init__(self, parent, **kwargs):
-        bg = parent.cget("bg")
+        kwargs.setdefault("bg", parent.cget("bg"))
         super().__init__(parent, width=self.W, height=self.H,
-                         bg=bg, highlightthickness=0, **kwargs)
+                         highlightthickness=0, **kwargs)
         self._frame = 0
         self._animating = False
         self._job = None
