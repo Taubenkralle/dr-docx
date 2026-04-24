@@ -1,2 +1,2 @@
 @echo off
-python "%~dp0dr_docx.py"
+python "%~dp0dr_pdf.py"
