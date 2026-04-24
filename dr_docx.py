@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
 import threading
+import subprocess
 import os
 import sys
 
@@ -18,28 +19,43 @@ def pdf_path(docx_path):
     return os.path.splitext(docx_path)[0] + ".pdf"
 
 
-class DuplicateDialog(tk.Toplevel):
-    """Modal dialog shown when existing PDFs are detected."""
+def find_docx(root):
+    """Recursively find all .docx files under root."""
+    found = []
+    for dirpath, _, filenames in os.walk(root):
+        for f in filenames:
+            if f.lower().endswith(".docx"):
+                found.append(os.path.join(dirpath, f))
+    return found
 
+
+def open_in_explorer(path):
+    subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
+
+
+class DuplicateDialog(tk.Toplevel):
     REPLACE_ALL = "replace_all"
     SKIP_EXISTING = "skip_existing"
     CANCEL = "cancel"
 
-    def __init__(self, parent, existing_names):
+    def __init__(self, parent, existing_paths, root_folder):
         super().__init__(parent)
         self.title("Vorhandene PDFs gefunden")
         self.resizable(False, False)
         self.grab_set()
         self.result = self.CANCEL
 
+        names = [os.path.relpath(pdf_path(p), root_folder) for p in existing_paths]
+        preview = "\n".join(f"  • {n}" for n in names[:10])
+        if len(names) > 10:
+            preview += f"\n  ... und {len(names) - 10} weitere"
+
         msg = (
-            f"{len(existing_names)} PDF(s) mit gleichem Namen existieren bereits:\n\n"
-            + "\n".join(f"  • {n}" for n in existing_names[:10])
-            + ("\n  ..." if len(existing_names) > 10 else "")
+            f"{len(names)} PDF(s) mit gleichem Namen existieren bereits:\n\n"
+            + preview
             + "\n\nWas soll passieren?"
         )
-
-        tk.Label(self, text=msg, font=("Segoe UI", 10), justify="left", wraplength=380).pack(
+        tk.Label(self, text=msg, font=("Segoe UI", 10), justify="left", wraplength=420).pack(
             padx=20, pady=(18, 14)
         )
 
@@ -47,37 +63,21 @@ class DuplicateDialog(tk.Toplevel):
         btn_frame.pack(pady=(0, 16))
 
         tk.Button(
-            btn_frame,
-            text="Alle ersetzen",
-            width=16,
-            font=("Segoe UI", 10, "bold"),
-            bg="#2563EB",
-            fg="white",
-            relief="flat",
-            cursor="hand2",
-            command=self._replace_all,
+            btn_frame, text="Alle ersetzen", width=16,
+            font=("Segoe UI", 10, "bold"), bg="#2563EB", fg="white",
+            relief="flat", cursor="hand2", command=self._replace_all,
         ).pack(side="left", padx=6)
 
         tk.Button(
-            btn_frame,
-            text="Nur neue konvertieren",
-            width=20,
-            font=("Segoe UI", 10),
-            bg="#E5E7EB",
-            relief="flat",
-            cursor="hand2",
-            command=self._skip_existing,
+            btn_frame, text="Nur neue konvertieren", width=20,
+            font=("Segoe UI", 10), bg="#E5E7EB",
+            relief="flat", cursor="hand2", command=self._skip_existing,
         ).pack(side="left", padx=6)
 
         tk.Button(
-            btn_frame,
-            text="Abbrechen",
-            width=12,
-            font=("Segoe UI", 10),
-            bg="#E5E7EB",
-            relief="flat",
-            cursor="hand2",
-            command=self._cancel,
+            btn_frame, text="Abbrechen", width=12,
+            font=("Segoe UI", 10), bg="#E5E7EB",
+            relief="flat", cursor="hand2", command=self._cancel,
         ).pack(side="left", padx=6)
 
         self.protocol("WM_DELETE_WINDOW", self._cancel)
@@ -103,6 +103,72 @@ class DuplicateDialog(tk.Toplevel):
         self.destroy()
 
 
+class ErrorDialog(tk.Toplevel):
+    """Shows failed files as clickable links that open the file in Explorer."""
+
+    def __init__(self, parent, errors):
+        super().__init__(parent)
+        self.title("Fehler beim Konvertieren")
+        self.resizable(True, True)
+        self.grab_set()
+
+        tk.Label(
+            self,
+            text=f"{len(errors)} Datei(en) konnten nicht konvertiert werden.\n"
+                 "Klicke auf einen Dateinamen um ihn im Explorer zu öffnen:",
+            font=("Segoe UI", 10),
+            justify="left",
+        ).pack(padx=16, pady=(14, 6), anchor="w")
+
+        frame = tk.Frame(self)
+        frame.pack(fill="both", expand=True, padx=16, pady=(0, 8))
+
+        scrollbar = tk.Scrollbar(frame)
+        scrollbar.pack(side="right", fill="y")
+
+        text = tk.Text(
+            frame,
+            font=("Segoe UI", 10),
+            wrap="none",
+            cursor="arrow",
+            yscrollcommand=scrollbar.set,
+            width=70,
+            height=min(len(errors) + 2, 16),
+            relief="flat",
+            bg=self.cget("bg"),
+        )
+        text.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=text.yview)
+
+        text.tag_config("link", foreground="#2563EB", underline=True)
+        text.tag_config("err", foreground="#6B7280")
+
+        for path, exc in errors:
+            tag = f"link_{id(path)}"
+            text.tag_config(tag, foreground="#2563EB", underline=True)
+            text.tag_bind(tag, "<Button-1>", lambda _e, p=path: open_in_explorer(p))
+            text.tag_bind(tag, "<Enter>", lambda _e: text.config(cursor="hand2"))
+            text.tag_bind(tag, "<Leave>", lambda _e: text.config(cursor="arrow"))
+
+            text.insert("end", os.path.basename(path), (tag,))
+            text.insert("end", f"  –  {exc}\n", ("err",))
+
+        text.config(state="disabled")
+
+        tk.Button(
+            self, text="Schließen", command=self.destroy,
+            font=("Segoe UI", 10), bg="#E5E7EB", relief="flat", cursor="hand2",
+        ).pack(pady=(0, 14))
+
+        self._center(parent)
+
+    def _center(self, parent):
+        self.update_idletasks()
+        px = parent.winfo_rootx() + (parent.winfo_width() - self.winfo_width()) // 2
+        py = parent.winfo_rooty() + (parent.winfo_height() - self.winfo_height()) // 2
+        self.geometry(f"+{px}+{py}")
+
+
 class DrDocxApp(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -117,7 +183,7 @@ class DrDocxApp(tk.Tk):
         tk.Label(self, text="Dr. Docx", font=("Segoe UI", 22, "bold"), fg="#2563EB").grid(
             row=0, column=0, columnspan=3, pady=(20, 4)
         )
-        tk.Label(self, text="DOCX → PDF Konverter", font=("Segoe UI", 10), fg="#6B7280").grid(
+        tk.Label(self, text="DOCX → PDF Konverter  ·  inkl. Unterordner", font=("Segoe UI", 10), fg="#6B7280").grid(
             row=1, column=0, columnspan=3, pady=(0, 16)
         )
 
@@ -131,34 +197,22 @@ class DrDocxApp(tk.Tk):
         )
 
         tk.Button(
-            self,
-            text="Durchsuchen",
-            command=self._browse,
-            font=("Segoe UI", 10),
-            bg="#E5E7EB",
-            relief="flat",
-            cursor="hand2",
+            self, text="Durchsuchen", command=self._browse,
+            font=("Segoe UI", 10), bg="#E5E7EB", relief="flat", cursor="hand2",
         ).grid(row=2, column=2, padx=(0, 16), pady=8)
 
         self.status_label = tk.Label(
-            self, text="", font=("Segoe UI", 9), fg="#374151", wraplength=460
+            self, text="", font=("Segoe UI", 9), fg="#374151", wraplength=480
         )
         self.status_label.grid(row=3, column=0, columnspan=3, pady=(0, 4))
 
-        self.progress = ttk.Progressbar(self, length=460, mode="determinate")
+        self.progress = ttk.Progressbar(self, length=480, mode="determinate")
         self.progress.grid(row=4, column=0, columnspan=3, padx=16, pady=(0, 12))
 
         self.convert_btn = tk.Button(
-            self,
-            text="Konvertieren",
-            command=self._start_conversion,
-            font=("Segoe UI", 11, "bold"),
-            bg="#2563EB",
-            fg="white",
-            relief="flat",
-            cursor="hand2",
-            padx=24,
-            pady=8,
+            self, text="Konvertieren", command=self._start_conversion,
+            font=("Segoe UI", 11, "bold"), bg="#2563EB", fg="white",
+            relief="flat", cursor="hand2", padx=24, pady=8,
         )
         self.convert_btn.grid(row=5, column=0, columnspan=3, pady=(0, 20))
 
@@ -172,15 +226,15 @@ class DrDocxApp(tk.Tk):
         folder = filedialog.askdirectory(title="Verzeichnis wählen")
         if folder:
             self.folder_var.set(folder)
-            self._update_status(folder)
+            self._refresh_status(folder)
 
-    def _update_status(self, folder):
-        files = [f for f in os.listdir(folder) if f.lower().endswith(".docx")]
+    def _refresh_status(self, folder):
+        files = find_docx(folder)
         count = len(files)
         if count == 0:
-            self.status_label.config(text="Keine .docx-Dateien gefunden.", fg="#EF4444")
+            self.status_label.config(text="Keine .docx-Dateien gefunden (inkl. Unterordner).", fg="#EF4444")
         else:
-            self.status_label.config(text=f"{count} .docx-Datei(en) gefunden.", fg="#059669")
+            self.status_label.config(text=f"{count} .docx-Datei(en) gefunden (inkl. Unterordner).", fg="#059669")
 
     def _start_conversion(self):
         folder = self.folder_var.get().strip()
@@ -188,20 +242,16 @@ class DrDocxApp(tk.Tk):
             messagebox.showwarning("Kein Verzeichnis", "Bitte wähle zuerst ein Verzeichnis.")
             return
 
-        all_files = [
-            os.path.join(folder, f)
-            for f in os.listdir(folder)
-            if f.lower().endswith(".docx")
-        ]
+        all_files = find_docx(folder)
         if not all_files:
-            messagebox.showinfo("Keine Dateien", "Keine .docx-Dateien im gewählten Verzeichnis.")
+            messagebox.showinfo("Keine Dateien", "Keine .docx-Dateien gefunden (auch nicht in Unterordnern).")
             return
 
         existing = [p for p in all_files if os.path.exists(pdf_path(p))]
-
         files_to_convert = all_files
+
         if existing:
-            dlg = DuplicateDialog(self, [os.path.basename(pdf_path(p)) for p in existing])
+            dlg = DuplicateDialog(self, existing, folder)
             if dlg.result == DuplicateDialog.CANCEL:
                 return
             if dlg.result == DuplicateDialog.SKIP_EXISTING:
@@ -217,36 +267,37 @@ class DrDocxApp(tk.Tk):
         self.progress["maximum"] = len(files_to_convert)
         self.progress["value"] = 0
 
-        threading.Thread(target=self._convert, args=(files_to_convert,), daemon=True).start()
+        threading.Thread(
+            target=self._convert, args=(files_to_convert, folder), daemon=True
+        ).start()
 
-    def _convert(self, files):
+    def _convert(self, files, root_folder):
         errors = []
         for i, path in enumerate(files, 1):
-            name = os.path.basename(path)
+            rel = os.path.relpath(path, root_folder)
             self.status_label.config(
-                text=f"Konvertiere ({i}/{len(files)}): {name}", fg="#374151"
+                text=f"({i}/{len(files)})  {rel}", fg="#374151"
             )
             try:
                 convert(path, pdf_path(path))
             except Exception as e:
-                errors.append(f"{name}: {e}")
+                errors.append((path, str(e)))
             self.progress["value"] = i
             self.update_idletasks()
 
         self.convert_btn.config(state="normal")
+        done = len(files) - len(errors)
+
         if errors:
-            self.status_label.config(text=f"Fertig mit {len(errors)} Fehler(n).", fg="#EF4444")
-            messagebox.showerror(
-                "Fehler",
-                "Folgende Dateien konnten nicht konvertiert werden:\n\n" + "\n".join(errors),
+            self.status_label.config(
+                text=f"{done} konvertiert, {len(errors)} Fehler.", fg="#EF4444"
             )
+            self.after(0, lambda: ErrorDialog(self, errors))
         else:
             self.status_label.config(
                 text=f"Alle {len(files)} Datei(en) erfolgreich konvertiert!", fg="#059669"
             )
-            messagebox.showinfo(
-                "Fertig", f"{len(files)} Datei(en) wurden als PDF gespeichert."
-            )
+            messagebox.showinfo("Fertig", f"{len(files)} Datei(en) wurden als PDF gespeichert.")
 
 
 if __name__ == "__main__":
