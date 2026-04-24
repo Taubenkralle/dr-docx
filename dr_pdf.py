@@ -461,27 +461,38 @@ class DrPdfApp(tk.Tk):
             word.DisplayAlerts = 0
 
             for i, path in enumerate(files, 1):
+                # Normalize to absolute backslash paths – Word COM requires this
+                abs_in  = os.path.normpath(os.path.abspath(path))
+                abs_out = os.path.normpath(os.path.abspath(pdf_path(path)))
+
                 rel = os.path.relpath(path, root_folder)
                 self.status_label.config(
                     text=f"({i}/{len(files)})  {rel}", fg="#374151")
 
                 doc = None
                 try:
-                    doc = word.Documents.Open(path, False, True)  # ConfirmConversions=False, ReadOnly=True
+                    doc = word.Documents.Open(abs_in, False, True)
                     time.sleep(0.8)
 
-                    out = pdf_path(path)
                     saved = False
                     for attempt in range(5):
                         try:
-                            doc.SaveAs(out, 17)  # 17 = wdFormatPDF
-                            saved = True
-                            break
+                            # SaveAs2 for Word 2013+, fall back to SaveAs
+                            try:
+                                doc.SaveAs2(FileName=abs_out, FileFormat=17)
+                            except AttributeError:
+                                doc.SaveAs(FileName=abs_out, FileFormat=17)
+
+                            # Verify file was actually created
+                            if os.path.exists(abs_out):
+                                saved = True
+                                break
                         except Exception:
-                            time.sleep(2)
+                            pass
+                        time.sleep(2)
 
                     if not saved:
-                        errors.append((path, "Speichern fehlgeschlagen nach 5 Versuchen"))
+                        errors.append((path, "PDF wurde nicht erstellt (5 Versuche)"))
 
                 except Exception as e:
                     errors.append((path, str(e)))
