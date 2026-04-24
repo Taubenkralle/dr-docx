@@ -1,3 +1,12 @@
+import sys
+import io
+
+# pythonw.exe sets stdout/stderr to None; docx2pdf/tqdm write to them → crash
+if sys.stdout is None:
+    sys.stdout = io.StringIO()
+if sys.stderr is None:
+    sys.stderr = io.StringIO()
+
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
 import threading
@@ -5,7 +14,6 @@ import subprocess
 import shutil
 import tempfile
 import os
-import sys
 import math
 
 try:
