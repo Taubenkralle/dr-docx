@@ -468,5 +468,13 @@ class DrPdfApp(tk.Tk):
 
 
 if __name__ == "__main__":
-    app = DrPdfApp()
-    app.mainloop()
+    try:
+        app = DrPdfApp()
+        app.mainloop()
+    except Exception as exc:
+        import traceback
+        tk.Tk().withdraw()
+        messagebox.showerror(
+            "Dr. PDF – Startfehler",
+            f"{exc}\n\n{traceback.format_exc()}"
+        )

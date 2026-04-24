@@ -1,2 +1,2 @@
 @echo off
-python "%~dp0dr_pdf.py"
+start "" pythonw "%~dp0dr_pdf.py"
